@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+python-dotenv
+httpx
+pydantic
+langchain
+slack-sdk
+email-validator
