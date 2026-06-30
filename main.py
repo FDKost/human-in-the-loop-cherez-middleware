@@ -1,81 +1,76 @@
-import uuid
-from langchain import OpenAI
-from langchain.agents import initialize_agent
-from langchain.tools import CalculatorTool
-from langchain.callbacks.manager import CallbackManager
-from callbacks import HumanInTheLoopMiddleware, InterruptException
+import os
+from fastapi import FastAPI
+from pydantic import BaseModel
+from langchain.chat_models import ChatOpenAI
+from langchain.tools import tool
+from langgraph.agents import create_agent
+from langgraph.moderation import HumanInTheLoopMiddleware
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph import Command
 
-def main():
-    # Initialize LLM
-    llm = OpenAI(temperature=0)
+# Ensure OpenAI API key is set
+if "OPENAI_API_KEY" not in os.environ:
+    raise RuntimeError("Please set the OPENAI_API_KEY environment variable.")
 
-    # Define tools
-    calculator = CalculatorTool()
-    tools = [calculator]
+# Initialize LLM
+llm = ChatOpenAI(temperature=0)
 
-    # Set up Human-in-the-Loop middleware
-    hil_middleware = HumanInTheLoopMiddleware()
-    callback_manager = CallbackManager([hil_middleware])
+# Define a simple tool that requires approval
+@tool
+def dummy_tool(input: str) -> str:
+    """A dummy tool that returns a string requiring user approval."""
+    return f"Tool executed with input: {input}"
 
-    # Memory saver for state persistence
-    memory_saver = MemorySaver()
+# Create the agent with Human-in-the-Loop middleware
+agent = create_agent(
+    llm=llm,
+    tools=[dummy_tool],
+    checkpointer=MemorySaver(),
+    middleware=[
+        HumanInTheLoopMiddleware(
+            interrupt_on=["dummy_tool"],
+            description_prefix="Please review the following tool request:",
+        )
+    ],
+)
 
-    # Create the agent executor
-    agent = initialize_agent(
-        tools,
-        llm,
-        agent="zero-shot-react-description",
-        handle_parsing_errors=True,
-        callback_manager=callback_manager,
-        memory=memory_saver,
-    )
+app = FastAPI(title="Human-in-the-Loop Agent")
 
-    # Unique thread identifier for this conversation
-    thread_id = str(uuid.uuid4())
-    config = {"thread_id": thread_id}
+class RunRequest(BaseModel):
+    message: str
+    thread_id: str
 
-    # Initial agent invocation
-    try:
-        result = agent.invoke({"input": "What is 2+2?"}, config=config)
-    except InterruptException as e:
-        result = e.payload
+class Decision(BaseModel):
+    type: str  # "approve" or "reject"
+    message: str | None = None
 
-    # Handle potential pauses
-    while isinstance(result, dict) and result.get("__interrupt__"):
-        action_requests = result.get("action_requests", [])
-        decisions = []
+class ResumeRequest(BaseModel):
+    thread_id: str
+    decisions: list[Decision]
 
-        for ar in action_requests:
-            tool_name = ar.get("name", "unknown_tool")
-            args = ar.get("arguments", {})
-            print(f"\n[Review] Tool: {tool_name}")
-            print(f"[Review] Arguments: {args}")
-            print("[Review] Approve? (y/n): ", end="")
+def _invoke_agent(message: str | None, thread_id: str, decisions: list[dict] | None = None):
+    config = {"configurable": {"thread_id": thread_id}}
+    if decisions is None:
+        # First invocation with user message
+        result = agent.invoke({"input": message}, config=config)
+    else:
+        # Resume invocation with decisions
+        result = agent.invoke(Command(resume={"decisions": decisions}), config=config)
+    return result
 
-            choice = input().strip().lower()
-            if choice in ("y", "yes"):
-                decisions.append(
-                    {"type": "approve", "message": f"Approved {tool_name}"}
-                )
-            else:
-                decisions.append(
-                    {"type": "reject", "message": f"Rejected {tool_name}"}
-                )
+@app.post("/run")
+async def run_agent(req: RunRequest):
+    result = _invoke_agent(req.message, req.thread_id)
+    if "__interrupt__" in result:
+        # Return the interrupt information to the client
+        return {"interrupt": result["__interrupt__"]}
+    return {"output": result}
 
-        # Resume agent execution with decisions
-        cmd = Command(resume={"decisions": decisions})
-        try:
-            result = agent.invoke(
-                {"input": "Continue"}, config=config, command=cmd
-            )
-        except InterruptException as e:
-            result = e.payload
-
-    # Final output
-    print("\n[Result] Agent finished with output:")
-    print(result)
-
-if __name__ == "__main__":
-    main()
+@app.post("/resume")
+async def resume_agent(req: ResumeRequest):
+    # Convert Decision objects to dicts
+    decisions = [d.dict() for d in req.decisions]
+    result = _invoke_agent(None, req.thread_id, decisions=decisions)
+    if "__interrupt__" in result:
+        return {"interrupt": result["__interrupt__"]}
+    return {"output": result}

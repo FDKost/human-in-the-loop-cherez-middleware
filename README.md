@@ -1,81 +1,83 @@
-# Human-in-the-Loop (HIL) Agent with Middleware
+# Human-in-the-Loop Agent
 
-This repository demonstrates how to add a Human-in-the-Loop (HIL) experience to a LangChain agent using a custom middleware. The agent pauses before executing any tool, prompts the user for approval, and can resume execution based on the user's decision. The state is persisted using `MemorySaver` so that the conversation can be resumed seamlessly.
+This project demonstrates a simple LangGraph agent that pauses execution when a tool call requires user approval. The agent uses the `HumanInTheLoopMiddleware` to interrupt on a specific tool, and the `MemorySaver` checkpointer to persist state between requests.
 
 ## Features
 
-- **Human-in-the-Loop Middleware** – Intercepts tool calls, displays the tool name and arguments, and asks the user to approve or reject.
-- **Interrupt Handling** – If the user rejects a tool call, the agent pauses and returns a structured payload.
-- **Decision Collection** – The user can approve or reject each tool invocation. The decisions are collected in the same order as the tool requests.
-- **Resume Execution** – The agent can be resumed with a `Command` object containing the decisions.
-- **State Persistence** – Uses `MemorySaver` to persist the agent’s state across pauses and resumes.
+- Human-in-the-loop via middleware
+- Persistent state with `MemorySaver`
+- FastAPI API with `/run` and `/resume` endpoints
+- Simple dummy tool that requires approval
 
-## Setup
+## Requirements
 
-1. **Clone the repository**
+- Python 3.10+
+- OpenAI API key (set `OPENAI_API_KEY` environment variable)
 
-   ```bash
-   git clone https://github.com/your-username/hil-agent.git
-   cd hil-agent
-   ```
-
-2. **Create a virtual environment**
-
-   ```bash
-   python -m venv venv
-   source venv/bin/activate   # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install dependencies**
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Set your OpenAI API key**
-
-   ```bash
-   export OPENAI_API_KEY="your-openai-key"
-   ```
-
-   On Windows:
-
-   ```cmd
-   set OPENAI_API_KEY=your-openai-key
-   ```
-
-## Running the Agent
+## Installation
 
 ```bash
-python main.py
+pip install -r requirements.txt
 ```
 
-You will see prompts like:
-
-```
-[HumanInTheLoop] Tool call detected: calculator
-[HumanInTheLoop] Arguments: {"a": 2, "b": 2}
-[HumanInTheLoop] Approve? (y/n): 
-```
-
-Type `y` to approve or `n` to reject. If you reject, the agent will pause and ask you to review the tool request. After making your decisions, the agent will resume execution.
-
-## Testing
-
-The repository includes a simple test for the middleware:
+## Running the Server
 
 ```bash
-pytest
+uvicorn main:app --reload
 ```
 
-The test verifies that the middleware correctly interrupts the agent when the user rejects a tool call.
+The API is available at `http://127.0.0.1:8000`.
 
-## Customization
+## API Endpoints
 
-- **Tools** – Add or replace tools in `main.py` by importing from `langchain.tools`.
-- **Agent Type** – Change the agent type in `initialize_agent` (e.g., `"react"` or `"chat-zero-shot-react-description"`).
-- **Middleware Logic** – Modify `callbacks.py` to change how decisions are collected or to add more sophisticated prompts.
+### POST /run
+
+Start or continue an agent session.
+
+Request body:
+```json
+{
+  "message": "Your message to the agent",
+  "thread_id": "session-1"
+}
+```
+
+Response:
+- If the agent pauses, returns `{"interrupt": {...}}` containing `action_requests` and `review_configs`.
+- If the agent finishes, returns `{"output": {...}}`.
+
+### POST /resume
+
+Resume a paused agent session with decisions.
+
+Request body:
+```json
+{
+  "thread_id": "session-1",
+  "decisions": [
+    {
+      "type": "approve",
+      "message": null
+    },
+    {
+      "type": "reject",
+      "message": "Not needed"
+    }
+  ]
+}
+```
+
+Response:
+- If the agent pauses again, returns `{"interrupt": {...}}`.
+- If the agent finishes, returns `{"output": {...}}`.
+
+## Example Flow
+
+1. Send a request to `/run` with your message.
+2. If you receive an `interrupt`, inspect the `action_requests` and decide to approve or reject each.
+3. Send a request to `/resume` with your decisions.
+4. Repeat until the agent returns an `output`.
 
 ## License
 
-MIT License
+MIT

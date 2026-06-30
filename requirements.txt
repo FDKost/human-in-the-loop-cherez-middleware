@@ -1,4 +1,5 @@
+langgraph==0.0.1
 langchain
-langchain-openai
-langgraph
-openai
+redis-py
+fastapi
+uvicorn
