@@ -1,56 +1,80 @@
-# Human-in-the-Loop Agent with Middleware
+# Human-in-the-Loop (HIL) Agent with Middleware
 
-This project demonstrates how to build a LangChain agent that pauses execution when a tool call is about to be executed, allowing a human to approve, reject, or edit the action before it proceeds. The agent uses:
+This repository demonstrates how to add a Human-in-the-Loop (HIL) experience to a LangChain agent using a custom middleware. The agent pauses before executing any tool, prompts the user for approval, and can resume execution based on the user's decision. The state is persisted using `MemorySaver` so that the conversation can be resumed seamlessly.
 
-- **HumanInTheLoopMiddleware** – a custom middleware that intercepts tool calls.
-- **MemorySaver** – a simple in-memory checkpointer for conversation state.
-- **Command tool** – used to resume the chain after a human decision.
+## Features
 
-## Prerequisites
+- **Human-in-the-Loop Middleware** – Intercepts tool calls, displays the tool name and arguments, and asks the user to approve or reject.
+- **Interrupt Handling** – If the user rejects a tool call, the agent pauses and returns a structured payload.
+- **Decision Collection** – The user can approve or reject each tool invocation. The decisions are collected in the same order as the tool requests.
+- **Resume Execution** – The agent can be resumed with a `Command` object containing the decisions.
+- **State Persistence** – Uses `MemorySaver` to persist the agent’s state across pauses and resumes.
 
-- Python 3.10+
-- An OpenAI API key set in the environment variable `OPENAI_API_KEY`.
+## Setup
 
-## Installation
+1. **Clone the repository**
+
+   ```bash
+   git clone https://github.com/your-username/hil-agent.git
+   cd hil-agent
+   ```
+
+2. **Create a virtual environment**
+
+   ```bash
+   python -m venv venv
+   source venv/bin/activate   # On Windows: venv\Scripts\activate
+   ```
+
+3. **Install dependencies**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Set your OpenAI API key**
+
+   ```bash
+   export OPENAI_API_KEY="your-openai-key"
+   ```
+
+   On Windows:
+
+   ```cmd
+   set OPENAI_API_KEY=your-openai-key
+   ```
+
+## Running the Agent
 
 ```bash
-git clone https://github.com/your-username/human-in-the-loop-agent.git
-cd human-in-the-loop-agent
-python -m venv .venv
-source .venv/bin/activate   # On Windows use `.venv\Scripts\activate`
-pip install -r requirements.txt
+python main.py
 ```
 
-## Usage
+You will see prompts like:
+
+```
+[HumanInTheLoop] Tool call detected: calculator
+[HumanInTheLoop] Arguments: {"a": 2, "b": 2}
+[HumanInTheLoop] Approve? (y/n): 
+```
+
+Type `y` to approve or `n` to reject. If you reject, the agent will pause and ask you to review the tool request. After making your decisions, the agent will resume execution.
+
+## Testing
+
+The repository includes a simple test for the middleware:
 
 ```bash
-python src/main.py
+pytest
 ```
 
-You will be prompted to approve or reject tool calls. For example:
+The test verifies that the middleware correctly interrupts the agent when the user rejects a tool call.
 
-```
-[Human-in-the-Loop] Thread session-1: Tool calls detected:
-  1. Tool 'calculator' with arguments {'a': 2, 'b': 2, 'operation': 'add'}
+## Customization
 
-Tool 'calculator' with arguments {'a': 2, 'b': 2, 'operation': 'add'}
-Approve? (y/n/edit): y
-
-=== Final result ===
-{'role': 'assistant', 'content': '4'}
-```
-
-## Project Structure
-
-- `src/agent.py` – Defines the middleware, tools, and agent creation function.
-- `src/main.py` – Example script that runs the agent and handles interruptions.
-- `requirements.txt` – Python dependencies.
-
-## Extending
-
-- Add more tools to the agent by importing them from `langchain.tools` or defining custom ones.
-- Modify the middleware to change the prompt format or add timeouts.
-- Persist the `MemorySaver` to a database for long‑term conversation history.
+- **Tools** – Add or replace tools in `main.py` by importing from `langchain.tools`.
+- **Agent Type** – Change the agent type in `initialize_agent` (e.g., `"react"` or `"chat-zero-shot-react-description"`).
+- **Middleware Logic** – Modify `callbacks.py` to change how decisions are collected or to add more sophisticated prompts.
 
 ## License
 
